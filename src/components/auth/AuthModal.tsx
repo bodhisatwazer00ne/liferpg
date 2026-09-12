@@ -37,6 +37,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [trainerName, setTrainerName] = useState('');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [domainCopied, setDomainCopied] = useState(false);
 
   const handleGoogleSignIn = async () => {
     clearAuthError();
@@ -296,7 +297,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
 
             {/* Errors / Feedback */}
-            {(authError || feedback) && (
+            {authError && (authError.includes('DOMAIN NOT AUTHORIZED') || authError.includes('Authorized domains')) ? (
+              <div className="p-3 bg-[#fef2f2] border-2 border-[#ef4444] text-[#7f1d1d] font-silkscreen text-xs text-left space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-[#b91c1c] text-xs">
+                  <span>⚠️</span>
+                  <span>RENDER DOMAIN SETUP REQUIRED</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-[#991b1b]">
+                  Google Sign-In requires your hosting domain to be added to Firebase Authorized domains:
+                </p>
+                <div className="bg-white p-2 border border-[#fca5a5] flex items-center justify-between gap-2">
+                  <code className="font-pixel text-[10px] text-[#1e293b] select-all break-all">
+                    {typeof window !== 'undefined' ? window.location.hostname : 'your-domain'}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof window !== 'undefined' && navigator.clipboard) {
+                        navigator.clipboard.writeText(window.location.hostname);
+                        setDomainCopied(true);
+                        setTimeout(() => setDomainCopied(false), 3000);
+                      }
+                    }}
+                    className="px-2 py-1 bg-[#1e293b] text-white font-pixel text-[9px] hover:bg-[#334155] cursor-pointer shrink-0"
+                  >
+                    {domainCopied ? 'COPIED!' : 'COPY'}
+                  </button>
+                </div>
+                <ol className="text-[10px] list-decimal list-inside space-y-1 text-[#7f1d1d]">
+                  <li>Open <strong>Firebase Console</strong> → <strong>Authentication</strong></li>
+                  <li>Go to <strong>Settings</strong> tab → <strong>Authorized domains</strong></li>
+                  <li>Click <strong>Add domain</strong>, paste the domain above, and save!</li>
+                </ol>
+                <div className="pt-1 border-t border-[#fecaca] text-[10px] text-[#065f46] font-bold">
+                  ⚡ Tip: You can sign in or register with Trainer Email & Password below right now!
+                </div>
+              </div>
+            ) : (authError || feedback) && (
               <div
                 className={`p-2.5 border-2 text-center font-silkscreen text-xs ${
                   authError
@@ -311,7 +348,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     onClick={handleGoogleSignIn}
                     className="mt-2 inline-block px-3 py-1 bg-[#181425] text-[#fec83e] font-pixel text-[10px] border border-[#120e1d] cursor-pointer hover:bg-[#201933]"
                   >
-                    ▶ SIGN IN WITH GOOGLE
+                    ▶ RETRY SIGN IN WITH GOOGLE
                   </button>
                 )}
               </div>

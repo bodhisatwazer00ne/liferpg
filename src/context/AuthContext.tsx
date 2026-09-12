@@ -9,7 +9,9 @@ import {
   updateProfile,
   reload,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult
 } from 'firebase/auth';
 import { auth, testConnection } from '../services/firebase';
 import { 
@@ -91,6 +93,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       // Ignore URL parse errors
     }
 
+    // Check for redirect result from Google sign-in
+    getRedirectResult(auth)
+      .then(async (cred) => {
+        if (cred && cred.user) {
+          const cleanEmail = cred.user.email?.toLowerCase().trim() || '';
+          const canonicalUid = cleanEmail ? emailToAccountId(cleanEmail) : cred.user.uid;
+          if (cleanEmail) {
+            linkGoogleAccount(cleanEmail, cred.user.uid, cred.user.displayName || '').catch(() => {});
+          }
+          setFirebaseUser({
+            uid: canonicalUid,
+            email: cred.user.email,
+            displayName: cred.user.displayName,
+            emailVerified: cred.user.emailVerified,
+            providerId: 'google.com',
+          });
+        }
+      })
+      .catch((err) => {
+        if (err?.code && err.code.includes('unauthorized-domain')) {
+          setAuthError(mapAuthErrorMessage(err.code));
+        } else {
+          console.warn('Redirect auth result info:', err);
+        }
+      });
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         const cleanEmail = user.email?.toLowerCase().trim();
@@ -140,8 +168,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       directSignOut();
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      const cred = await signInWithPopup(auth, provider);
-      if (cred.user) {
+      
+      let cred;
+      try {
+        cred = await signInWithPopup(auth, provider);
+      } catch (popupErr: any) {
+        // If popup was blocked by browser, attempt redirect fallback
+        if (
+          popupErr?.code === 'auth/popup-blocked' ||
+          popupErr?.code === 'auth/cancelled-popup-request'
+        ) {
+          console.warn('Popup blocked, attempting redirect sign-in:', popupErr);
+          await signInWithRedirect(auth, provider);
+          return;
+        }
+        throw popupErr;
+      }
+
+      if (cred && cred.user) {
         const cleanEmail = cred.user.email?.toLowerCase().trim() || '';
         const canonicalUid = cleanEmail ? emailToAccountId(cleanEmail) : cred.user.uid;
         if (cleanEmail) {
@@ -156,7 +200,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
       }
     } catch (err: any) {
-      const msg = mapAuthErrorMessage(err.code || err.message);
+      const msg = mapAuthErrorMessage(err?.code || err?.message || String(err));
       setAuthError(msg);
       throw new Error(msg);
     }
@@ -336,6 +380,16 @@ export const useAuth = (): AuthContextType => {
 };
 
 function mapAuthErrorMessage(codeOrMsg: string): string {
+  const currentHost = typeof window !== 'undefined' && window.location.hostname 
+    ? window.location.hostname 
+    : 'your-app.onrender.com';
+
+  if (
+    codeOrMsg.includes('auth/unauthorized-domain') ||
+    codeOrMsg.includes('unauthorized-domain')
+  ) {
+    return `DOMAIN NOT AUTHORIZED: Google Sign-in requires adding "${currentHost}" to your Firebase project. In Firebase Console > Authentication > Settings > Authorized domains, click "Add domain" and enter "${currentHost}". (You can also sign in or register instantly with Trainer Email & Password below!)`;
+  }
   if (
     codeOrMsg.includes('auth/operation-not-allowed') ||
     codeOrMsg.includes('OPERATION_NOT_ALLOWED') ||

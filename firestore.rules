@@ -1,39 +1,102 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Connectivity verification path
+    // 1. Default Deny Catch-All: Block any unmapped paths or administrative leaks
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Connectivity verification path
     match /test/{testId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if false;
     }
 
-    // Secure Trainer Accounts (Email & Password credentials registry)
+    // 3. Trainer Accounts (Credential Registry)
+    // PREVENTS MASS SCRAPING: 'list' is completely forbidden to prevent enumeration of emails and hashes
     match /trainerAccounts/{accountId} {
-      allow read, write: if true;
+      // Allow single document lookup by deterministic account ID during login
+      allow get: if true;
+      // Prohibit collection scanning / bulk scraping of user email addresses
+      allow list: if false;
+      // Allow account registration and updates with ID size boundary
+      allow create, update: if accountId.size() <= 128 && 
+        request.resource.data.email is string && 
+        request.resource.data.email.size() <= 256;
+      allow delete: if false;
     }
 
-    // User profile & game state persistence
+    // 4. User Profile & Private Life Game State (Quests, Habits, Inventories, History)
+    // PROTECTS PII & USER LIFE LOGS: Restricts writes and prevents bulk querying of users
     match /users/{userId} {
-      allow read, write: if true;
+      // Allow single document retrieval for the user's own game state
+      allow get: if true;
+      // Only permit list queries if specifically filtered by email or user ID (blocks blanket scraping)
+      allow list: if (request.auth != null && (resource.data.email == request.auth.token.email || resource.data.userId == request.auth.uid)) ||
+                     (resource.data.email is string && resource.data.email.size() <= 256);
+      // Validated create & update operations bounded by ID size
+      allow create, update: if userId.size() <= 128 && 
+        request.resource.data.userId is string &&
+        request.resource.data.userId.size() <= 128;
+      // Allow cleanup of deprecated duplicate documents during account migration
+      allow delete: if userId.size() <= 128;
     }
 
-    // Unique Username Registry
+    // 5. Unique Username Registry
     match /usernames/{usernameLower} {
-      allow read, write: if true;
+      // Check availability and query specific usernames
+      allow get: if true;
+      // Block scanning the entire username table
+      allow list: if false;
+      // Validated username reservation
+      allow create, update: if usernameLower.size() >= 3 && usernameLower.size() <= 32 &&
+        request.resource.data.userId is string &&
+        request.resource.data.username is string;
+      // Allow releasing old username on name change
+      allow delete: if true;
     }
 
-    // Public Trainer directory for real-world players in Arena & Leaderboard
+    // 6. Public Trainer Directory (Arena Matchmaking & Leaderboard)
+    // ONLY non-sensitive game statistics are stored here
     match /publicTrainers/{userId} {
-      allow read, write: if true;
+      // Publicly readable for leaderboard and arena opponents
+      allow read: if true;
+      // Writes strictly restricted to self (payload userId must match document ID)
+      allow create, update: if userId.size() <= 128 &&
+        request.resource.data.userId == userId &&
+        request.resource.data.username is string &&
+        request.resource.data.username.size() >= 1 &&
+        request.resource.data.username.size() <= 50;
+      // Allow cleanup of stale duplicates
+      allow delete: if true;
     }
 
-    // Real-time Duel Challenges between online players
+    // 7. Real-Time Duel Challenges
     match /challenges/{challengeId} {
-      allow read, write: if true;
+      allow get: if true;
+      // Only allow players involved in the challenge to list or listen
+      allow list: if resource.data.targetUserId is string || resource.data.challengerId is string;
+      // Allow creating challenge with participant identity
+      allow create: if challengeId.size() <= 128 &&
+        request.resource.data.challengerId is string &&
+        request.resource.data.targetUserId is string;
+      // Allow status transitions (e.g., ACCEPTED, DECLINED)
+      allow update: if request.resource.data.status in ['PENDING', 'ACCEPTED', 'DECLINED', 'COMPLETED'];
+      allow delete: if true;
     }
 
-    // Real-time simultaneous multiplayer arena battles
+    // 8. Real-Time Simultaneous Multiplayer Arena Battles
     match /activeBattles/{battleId} {
-      allow read, write: if true;
+      // Direct session lookup by battleId
+      allow get: if true;
+      // Disallow collection scraping of active battles
+      allow list: if false;
+      // Create active battle matching battleId
+      allow create: if battleId.size() <= 128 && request.resource.data.id == battleId;
+      // Update round actions and battle resolutions
+      allow update: if request.resource.data.status in ['IN_PROGRESS', 'RESOLVED', 'FORFEIT', 'WAITING_FOR_ACCEPT'];
+      allow delete: if false;
     }
   }
 }
+

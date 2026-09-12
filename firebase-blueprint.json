@@ -94,9 +94,28 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "player1", "player2", "status"]
+    },
+    "TrainerAccount": {
+      "title": "TrainerAccount",
+      "description": "Secure account credentials and authentication registry mapped by deterministic canonical account ID",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "salt": { "type": "string" },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "email"]
     }
   },
   "firestore": {
+    "/trainerAccounts/{accountId}": {
+      "schema": "TrainerAccount",
+      "description": "Secure account credentials directory protected against mass enumeration"
+    },
     "/users/{userId}": {
       "schema": "UserGameProfile",
       "description": "Stores user trainer state and game progress per authenticated user"
